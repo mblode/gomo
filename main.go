@@ -1,11 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/otiai10/copy"
 	"io/ioutil"
 	"os"
+	"time"
 	"regexp"
 )
+
+type configuration struct {
+	basePath    string `json:"basePath"`
+	subtitle    string `json:"subtitle"`
+	author      string `json:"author"`
+	siteURL     string `json:"siteURL"`
+	currentYear int    `json:"currentYear"`
+}
 
 func check(e error) {
 	// Log message with specified arguments.
@@ -15,12 +26,13 @@ func check(e error) {
 	}
 }
 
-func readFile(fileName string) {
+func readFile(fileName string) []byte {
 	// Read file and close the file.
 
-	dat, err := ioutil.ReadFile(fileName)
+	file, err := ioutil.ReadFile(fileName)
 	check(err)
-	fmt.Print(string(dat))
+	fmt.Println(string(file))
+	return file
 }
 
 func writeFile(fileName string, text string) {
@@ -38,89 +50,175 @@ func truncateText(text string, numberOfWords int) {
 		numberOfWords = 25
 	}
 
-	// return ' '.join(re.sub('(?s)<.*?>', ' ', text).split()[:words])
+	return " ".join(regexp.sub("(?s)<.*?>", " ", text).split()[:words])
 }
 
 func readHeaders(text string) {
 	// Parse headers in text and yield (key, value, end-index) tuples.
+
+	for match in regexp.finditer(r'\s*<!--\s*(.+?)\s*:\s*(.+?)\s*-->\s*|.+', text):
+        if not match.group(1):
+            break
+        yield match.group(1), match.group(2), match.end()
 }
 
-func formatDate(dateString string) {
+func formatDate(dateString int) {
 	// Convert yyyy-mm-dd date string to RFC 2822 format date string.
+
+	// return dateString.Format(time.RFC2822)
+	return time.Now().Format(time.RFC2822)
 }
 
 func readContent(filename string) {
 	// Read content and metadata from file into a dictionary.
+
+	// Read file content.
+    text = fread(filename)
+
+    // Read metadata and save it in a dictionary.
+    date_slug = os.path.basename(filename).split('.')[0]
+    match = regexp.search(r'^(?:(\d\d\d\d-\d\d-\d\d)-)?(.+)$', date_slug)
+    content = {
+        'date': match.group(1) or '1970-01-01',
+        'slug': match.group(2),
+    }
+
+    // Read headers.
+    end = 0
+    for key, val, end in read_headers(text):
+        content[key] = val
+
+    // Separate content from headers.
+    text = text[end:]
+
+    // Convert Markdown content to HTML.
+    if filename.endswith(('.md', '.mkd', '.mkdn', '.mdown', '.markdown')):
+        try:
+            if _test == 'ImportError':
+                raise ImportError('Error forced by test')
+            import commonmark
+            text = commonmark.commonmark(text)
+        except ImportError as e:
+            log('WARNING: Cannot render Markdown in {}: {}', filename, str(e))
+
+    // Update the dictionary with content and RFC 2822 date.
+    content.update({
+        'content': text,
+        'rfc_2822_date': rfc_2822_format(content['date'])
+    })
+
+    return content
 }
 
-func renderHTML(template string) {
-	// Replace placeholders in template with values from params.
+func renderHTML(template string, content []byte) {
+	// Replace placeholders in template with values froconfiguration.
+
+	return regexp.sub(r'{{\s*([^}\s]+)\s*}}', lambda match: str(params.get(match.group(1), match.group(0))), template)
 }
 
-func makePages(source string, dist string, layout string) {
+func makePages(source string, dist string, layout string, content []byte) {
 	// Generate pages from page content.
+
+	items = []
+
+    for (srcPath in glob.glob(src)) {
+        content = read_content(srcPath)
+
+		page_configuration = dicconfiguration, **content)
+
+        // Populate placeholders in content if content-rendering is enabled.
+        ipage_configuration.get('render') == 'yes':
+		rendered_content = rendepage_configuration['content'], page_configuration)
+		page_configuration['content'] = rendered_content
+		content['content'] = rendered_content
+
+        items.append(content)
+
+        dstPath = render(dst, page_configuration)
+        output = render(layout, page_configuration)
+
+        log('Rendering {} => {} ...', srcPath, dstPath)
+        fwrite(dstPath, output)
+	}
+
+    return sorted(items, key=lambda x: x['date'], reverse=True)
 }
 
 func makeList(posts string, dist string, listLayout string, itemLayout string) {
 	// Generate list page for a blog.
 
+	items = []
+
+    for (post in posts) {
+		item_configuration = dicconfiguration, **post)
+		item_configuration['summary'] = truncate(post['content'])
+		item = render(itemLayout, item_configuration)
+		items.append(item)
+		configuration['content'] = ''.join(items)
+		dstPath = render(dst, configuration)
+		output = render(listLayout, configuration)
+
+		log('Rendering list => {} ...', dstPath)
+		fwrite(dstPath, output)
+	}
 }
 
 func main() {
 	// Create a new _site directory from scratch.
 
-    if os.path.isdir('_site'):
-        shutil.rmtree('_site')
-    shutil.copytree('static', '_site')
+	if _, err := os.Stat("_site"); os.IsNotExist(err) {
+		err := os.RemoveAll("_site")
+		check(err)
+	}
 
-    // Default parameters.
-    params = {
-        'base_path': '',
-        'subtitle': 'Lorem Ipsum',
-        'author': 'Admin',
-        'site_url': 'http://localhost:8000',
-        'current_year': datetime.datetime.now().year
-    }
+	err := copy.Copy("static", "_site")
+	check(err)
 
-    // If params.json exists, load it.
-    if os.path.isfile('params.json'):
-        params.update(json.loads(fread('params.json')))
+	// Default configuration.
+	config := []configuration{
+		{
+			basePath:    "",
+			subtitle:    "Lorem Ipsum",
+			author:      "Admin",
+			siteURL:     "http://localhost:8000",
+			currentYear: time.Now().Year(),
+		},
+	}
 
-    // Load layouts.
-    page_layout = fread('layout/page.html')
-    post_layout = fread('layout/post.html')
-    list_layout = fread('layout/list.html')
-    item_layout = fread('layout/item.html')
-    feed_xml = fread('layout/feed.xml')
-    item_xml = fread('layout/item.xml')
+	// If config.json exists, load it.
+	if _, err := os.Stat("config.json"); err == nil {
+		byteValue := readFile("config.json")
 
-    // Combine layouts to form final layouts.
-    post_layout = render(page_layout, content=post_layout)
-    list_layout = render(page_layout, content=list_layout)
+		json.Unmarshal(byteValue, &config)
+	}
 
-    // Create site pages.
-    make_pages('content/_index.html', '_site/index.html',
-               page_layout, **params)
-    make_pages('content/[!_]*.html', '_site/{{ slug }}/index.html',
-               page_layout, **params)
+	check(err)
 
-    // Create blogs.
-    blog_posts = make_pages('content/blog/*.md',
-                            '_site/blog/{{ slug }}/index.html',
-                            post_layout, blog='blog', **params)
-    news_posts = make_pages('content/news/*.html',
-                            '_site/news/{{ slug }}/index.html',
-                            post_layout, blog='news', **params)
+	// Load layouts.
+	pageLayout := readFile("layout/page.html")
+	postLayout := readFile("layout/post.html")
+	listLayout := readFile("layout/list.html")
+	itemLayout := readFile("layout/item.html")
+	feedXML := readFile("layout/feed.xml")
+	itemXML := readFile("layout/item.xml")
 
-    // Create blog list pages.
-    make_list(blog_posts, '_site/blog/index.html',
-              list_layout, item_layout, blog='blog', title='Blog', **params)
-    make_list(news_posts, '_site/news/index.html',
-              list_layout, item_layout, blog='news', title='News', **params)
+	// Combine layouts to form final layouts.
+	postLayout := renderHTML(pageLayout, pageLayout)
+	listLayout := renderHTML(pageLayout, listLayout)
 
-    // Create RSS feeds.
-    make_list(blog_posts, '_site/blog/rss.xml',
-              feed_xml, item_xml, blog='blog', title='Blog', **params)
-    make_list(news_posts, '_site/news/rss.xml',
-              feed_xml, item_xml, blog='news', title='News', **params)
+	// Create site pages.
+	makePages("content/_index.html", "_site/index.html", pageLayout, "home", config)
+	makePages("content/[!_]*.html", "_site/{{ slug }}/index.html", pageLayout, "home", config)
+
+	// Create blogs.
+	blogPosts := makePages("content/blog/*.md", "_site/blog/{{ slug }}/index.html", postLayout, "blog", config)
+	newsPosts := makePages("content/news/*.html", "_site/news/{{ slug }}/index.html", postLayout, "news", config)
+
+	// Create blog list pages.
+	makeList(blogPosts, "_site/blog/index.html", listLayout, itemLayout, "blog", "Blog", config)
+	makeList(newsPosts, "_site/news/index.html", listLayout, itemLayout, "news", "News", config)
+
+	// Create RSS feeds.
+	makeList(blogPosts, "_site/blog/rss.xml", feed_xml, item_xml, "blog", "Blog", config)
+	makeList(newsPosts, "_site/news/rss.xml", feed_xml, item_xml, "news", "News", config)
 }
